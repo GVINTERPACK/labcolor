@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LabColor — Gestão de Receitas Pantone</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+:root {
+  --bg:#0e0e10; --surface:#18181c; --surface2:#222228; --border:#2e2e38;
+  --accent:#e8ff47; --accent2:#ff6b35; --text:#f0f0f0; --muted:#7a7a8a;
+  --success:#4ade80; --warn:#facc15; --danger:#f87171; --radius:10px;
+}
+* { box-sizing:border-box; margin:0; padding:0; }
+body { background:var(--bg); color:var(--text); font-family:'DM Sans',sans-serif; min-height:100vh; font-size:14px; }
+
+header { display:flex; align-items:center; justify-content:space-between; padding:16px 28px; border-bottom:1px solid var(--border); background:var(--surface); position:sticky; top:0; z-index:100; flex-wrap:wrap; gap:10px; }
+.logo { font-family:'Syne',sans-serif; font-weight:800; font-size:22px; letter-spacing:-.5px; color:var(--accent); }
+.logo span { color:var(--text); }
+.header-right { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+.role-badge { background:var(--surface2); border:1px solid var(--border); border-radius:20px; padding:6px 16px; font-size:12px; font-weight:500; cursor:pointer; transition:all .2s; color:var(--text); }
+.role-badge.active { background:var(--accent); color:#000; border-color:var(--accent); font-weight:700; }
+.role-badge:hover:not(.active) { border-color:var(--accent); color:var(--accent); }
+.btn-config { background:none; border:1px solid var(--border); border-radius:20px; padding:6px 16px; font-size:12px; font-weight:500; cursor:pointer; color:var(--muted); transition:all .2s; }
+.btn-config:hover { border-color:var(--accent); color:var(--accent); }
+.sync-badge { display:flex; align-items:center; gap:5px; font-size:11px; color:var(--muted); font-family:'DM Mono',monospace; background:var(--surface2); border:1px solid var(--border); border-radius:20px; padding:4px 10px; }
+.sync-dot { width:6px; height:6px; border-radius:50%; background:var(--success); flex-shrink:0; }
+.sync-dot.syncing { background:var(--warn); animation:blink 1s infinite; }
+.sync-dot.error { background:var(--danger); }
+@keyframes blink { 0%,100%{opacity:1}50%{opacity:.2} }
+
+.app { display:flex; height:calc(100vh - 61px); }
+.sidebar { width:260px; min-width:220px; background:var(--surface); border-right:1px solid var(--border); display:flex; flex-direction:column; overflow-y:auto; }
+.main { flex:1; overflow-y:auto; padding:28px 32px; }
+
+.sidebar-section { padding:10px 16px 8px; }
+.sidebar-label { font-family:'DM Mono',monospace; font-size:10px; letter-spacing:1.5px; text-transform:uppercase; color:var(--muted); margin-bottom:10px; }
+.recipe-item { display:flex; align-items:center; gap:10px; padding:10px; border-radius:var(--radius); cursor:pointer; transition:background .15s; border:1px solid transparent; margin-bottom:4px; }
+.recipe-item:hover { background:var(--surface2); }
+.recipe-item.active { background:var(--surface2); border-color:var(--border); }
+.pantone-swatch { width:28px; height:28px; border-radius:6px; flex-shrink:0; border:1px solid rgba(255,255,255,.1); }
+.recipe-info { flex:1; min-width:0; }
+.recipe-name { font-family:'DM Mono',monospace; font-size:12px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.recipe-meta { font-size:11px; color:var(--muted); margin-top:1px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.status-dot { width:7px; height:7px; border-radius:50%; flex-shrink:0; }
+.dot-lab{background:var(--warn)} .dot-press{background:var(--accent2)} .dot-ok{background:var(--success)} .dot-ajuste{background:var(--danger)}
+
+.btn-new { margin:12px 16px 0; background:var(--accent); color:#000; border:none; border-radius:var(--radius); padding:10px 14px; font-family:'Syne',sans-serif; font-weight:700; font-size:13px; cursor:pointer; width:calc(100% - 32px); transition:opacity .2s; display:flex; align-items:center; gap:8px; justify-content:center; }
+.btn-new:hover { opacity:.85; }
+.btn-sidebar-sec { margin:6px 16px 0; background:none; border:1px solid var(--border); border-radius:var(--radius); padding:8px 14px; font-family:'Syne',sans-serif; font-size:12px; font-weight:600; color:var(--muted); cursor:pointer; width:calc(100% - 32px); transition:all .2s; }
+.btn-sidebar-sec:hover { border-color:var(--text); color:var(--text); }
+
+.search-wrap { padding:10px 16px 0; }
+.search-input-wrap { position:relative; }
+.search-icon { position:absolute; left:10px; top:50%; transform:translateY(-50%); color:var(--muted); font-size:13px; pointer-events:none; }
+.search-input { padding:8px 10px 8px 30px !important; font-size:12px !important; border-radius:var(--radius); width:100%; }
+.filter-chips { display:flex; gap:5px; flex-wrap:wrap; margin-top:8px; }
+.filter-chip { display:inline-flex; align-items:center; gap:4px; border-radius:20px; padding:3px 9px; font-size:10px; font-family:'Syne',sans-serif; font-weight:600; cursor:pointer; border:1px solid var(--border); background:var(--surface2); color:var(--muted); transition:all .15s; }
+.filter-chip.active { background:var(--accent); color:#000; border-color:var(--accent); }
+.filter-chip-dot { width:5px; height:5px; border-radius:50%; display:inline-block; }
+.recipe-count { font-size:10px; color:var(--muted); font-family:'DM Mono',monospace; }
+mark { background:var(--accent); color:#000; border-radius:2px; padding:0 1px; }
+
+.form-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+.form-group { display:flex; flex-direction:column; gap:7px; }
+.form-group.full { grid-column:1/-1; }
+label { font-family:'DM Mono',monospace; font-size:11px; letter-spacing:1px; text-transform:uppercase; color:var(--muted); }
+input,select,textarea { background:var(--surface2); border:1px solid var(--border); border-radius:var(--radius); color:var(--text); padding:10px 14px; font-family:'DM Sans',sans-serif; font-size:14px; transition:border-color .2s; outline:none; width:100%; }
+input:focus,select:focus,textarea:focus { border-color:var(--accent); }
+textarea { resize:vertical; min-height:80px; }
+select option { background:var(--surface2); }
+
+.tintas-section { background:var(--surface2); border:1px solid var(--border); border-radius:var(--radius); padding:14px; }
+.tinta-row { display:grid; grid-template-columns:1fr 90px 100px 36px; gap:8px; align-items:center; margin-bottom:8px; }
+.btn-icon { background:none; border:1px solid var(--border); border-radius:7px; color:var(--muted); width:36px; height:36px; cursor:pointer; font-size:18px; display:flex; align-items:center; justify-content:center; transition:all .2s; }
+.btn-icon:hover { border-color:var(--danger); color:var(--danger); }
+.btn-add-tinta { background:none; border:1px dashed var(--border); border-radius:var(--radius); color:var(--muted); padding:8px; cursor:pointer; font-size:13px; width:100%; transition:all .2s; }
+.btn-add-tinta:hover { border-color:var(--accent); color:var(--accent); }
+
+.card { background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:22px; margin-bottom:18px; }
+.card-title { font-family:'Syne',sans-serif; font-size:13px; font-weight:700; text-transform:uppercase; letter-spacing:.5px; color:var(--muted); margin-bottom:16px; display:flex; align-items:center; gap:8px; }
+.card-title::after { content:''; flex:1; height:1px; background:var(--border); }
+
+.btn-primary { background:var(--accent); color:#000; border:none; border-radius:var(--radius); padding:11px 22px; font-family:'Syne',sans-serif; font-weight:700; font-size:14px; cursor:pointer; transition:opacity .2s; }
+.btn-primary:hover { opacity:.85; }
+.btn-secondary { background:none; color:var(--text); border:1px solid var(--border); border-radius:var(--radius); padding:11px 22px; font-family:'Syne',sans-serif; font-weight:600; font-size:14px; cursor:pointer; transition:all .2s; }
+.btn-secondary:hover { border-color:var(--text); }
+.btn-ok { background:rgba(74,222,128,.15); color:var(--success); border:1px solid var(--success); border-radius:var(--radius); padding:11px 16px; font-family:'Syne',sans-serif; font-weight:700; font-size:13px; cursor:pointer; transition:all .2s; flex:1; }
+.btn-ok:hover { background:rgba(74,222,128,.3); }
+.btn-nok { background:rgba(248,113,113,.12); color:var(--danger); border:1px solid var(--danger); border-radius:var(--radius); padding:11px 16px; font-family:'Syne',sans-serif; font-weight:700; font-size:13px; cursor:pointer; transition:all .2s; flex:1; }
+.btn-nok:hover { background:rgba(248,113,113,.25); }
+.btn-anilox { background:rgba(255,107,53,.12); color:var(--accent2); border:1px solid var(--accent2); border-radius:var(--radius); padding:11px 16px; font-family:'Syne',sans-serif; font-weight:700; font-size:13px; cursor:pointer; transition:all .2s; flex:1; }
+.btn-anilox:hover { background:rgba(255,107,53,.25); }
+
+.detail-header { display:flex; align-items:flex-start; gap:18px; margin-bottom:24px; }
+.detail-swatch { width:60px; height:60px; border-radius:14px; border:2px solid rgba(255,255,255,.1); flex-shrink:0; }
+.detail-title-area { flex:1; }
+.detail-code { font-family:'DM Mono',monospace; font-size:26px; font-weight:500; margin-bottom:2px; }
+.detail-desc { color:var(--muted); font-size:13px; }
+.detail-actions-row { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-top:8px; }
+.status-badge { display:inline-flex; align-items:center; gap:6px; padding:4px 12px; border-radius:20px; font-size:12px; font-weight:600; }
+.badge-lab{background:rgba(250,204,21,.15);color:var(--warn)} .badge-press{background:rgba(255,107,53,.15);color:var(--accent2)} .badge-ok{background:rgba(74,222,128,.15);color:var(--success)} .badge-ajuste{background:rgba(248,113,113,.15);color:var(--danger)}
+.btn-pdf { background:none; border:1px solid var(--border); border-radius:20px; padding:4px 14px; font-size:11px; font-family:'Syne',sans-serif; font-weight:600; color:var(--muted); cursor:pointer; transition:all .2s; }
+.btn-pdf:hover { border-color:var(--accent); color:var(--accent); }
+
+.info-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; }
+.info-box { background:var(--surface2); border:1px solid var(--border); border-radius:var(--radius); padding:13px 15px; }
+.info-box-label { font-size:10px; color:var(--muted); margin-bottom:4px; font-family:'DM Mono',monospace; letter-spacing:.8px; text-transform:uppercase; }
+.info-box-value { font-size:14px; font-weight:500; }
+
+.tinta-table { width:100%; border-collapse:collapse; }
+.tinta-table th { text-align:left; font-family:'DM Mono',monospace; font-size:10px; letter-spacing:1px; text-transform:uppercase; color:var(--muted); padding:7px 10px; border-bottom:1px solid var(--border); }
+.tinta-table td { padding:9px 10px; border-bottom:1px solid rgba(46,46,56,.6); font-size:13px; }
+.tinta-table tr:last-child td { border-bottom:none; }
+.tag { display:inline-block; background:var(--surface2); border:1px solid var(--border); border-radius:5px; padding:2px 8px; font-size:11px; font-family:'DM Mono',monospace; color:var(--muted); }
+
+.flow-steps { display:flex; align-items:center; padding:14px 0; }
+.flow-step { display:flex; flex-direction:column; align-items:center; gap:6px; min-width:80px; }
+.flow-circle { width:34px; height:34px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:13px; font-weight:700; border:2px solid var(--border); background:var(--surface2); color:var(--muted); }
+.flow-circle.done{background:var(--success);border-color:var(--success);color:#000} .flow-circle.active{background:var(--accent);border-color:var(--accent);color:#000;animation:pulse 2s infinite} .flow-circle.warn{background:var(--danger);border-color:var(--danger);color:#fff}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(232,255,71,.4)}50%{box-shadow:0 0 0 8px rgba(232,255,71,0)}}
+.flow-label { font-size:10px; color:var(--muted); text-align:center; font-family:'DM Mono',monospace; }
+.flow-arrow { flex:1; height:2px; background:var(--border); min-width:20px; margin-bottom:20px; }
+.flow-arrow.done-arrow { background:var(--success); }
+
+.history-item { display:flex; gap:12px; padding:11px 0; border-bottom:1px solid var(--border); }
+.history-item:last-child { border-bottom:none; }
+.history-icon { width:30px; height:30px; border-radius:7px; background:var(--surface2); display:flex; align-items:center; justify-content:center; font-size:13px; flex-shrink:0; }
+.history-text { flex:1; }
+.history-who { font-size:12px; font-weight:500; margin-bottom:2px; }
+.history-what { font-size:12px; color:var(--muted); }
+.history-when { font-size:11px; color:var(--muted); font-family:'DM Mono',monospace; }
+.press-actions { display:flex; gap:10px; margin-top:14px; flex-wrap:wrap; }
+.anilox-note { background:rgba(255,107,53,.08); border:1px solid rgba(255,107,53,.25); border-radius:var(--radius); padding:11px 14px; font-size:12px; color:var(--accent2); line-height:1.6; }
+
+.modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,.75); display:flex; align-items:center; justify-content:center; z-index:1000; padding:20px; opacity:0; pointer-events:none; transition:opacity .2s; }
+.modal-overlay.open { opacity:1; pointer-events:all; }
+.modal { background:var(--surface); border:1px solid var(--border); border-radius:18px; width:100%; max-width:580px; max-height:90vh; display:flex; flex-direction:column; transform:translateY(20px); transition:transform .2s; }
+.modal-overlay.open .modal { transform:translateY(0); }
+.modal-header { padding:22px 26px 0; flex-shrink:0; }
+.modal-body { flex:1; overflow-y:auto; padding:16px 26px 4px; }
+.modal-body::-webkit-scrollbar{width:4px} .modal-body::-webkit-scrollbar-thumb{background:var(--border);border-radius:10px}
+.modal-title { font-family:'Syne',sans-serif; font-size:18px; font-weight:800; }
+.modal-footer { display:flex; gap:10px; justify-content:flex-end; padding:14px 26px 22px; border-top:1px solid var(--border); flex-shrink:0; background:var(--surface); border-radius:0 0 18px 18px; }
+.stab { border-radius:20px; padding:5px 16px; font-size:12px; font-family:'Syne',sans-serif; font-weight:600; cursor:pointer; transition:all .2s; border:1px solid var(--border); background:var(--surface2); color:var(--muted); }
+.stab.active { background:var(--accent); color:#000; border-color:var(--accent); font-weight:700; }
+
+.empty { display:flex; flex-direction:column; align-items:center; justify-content:center; padding:80px 20px; color:var(--muted); text-align:center; }
+.empty-icon { font-size:48px; margin-bottom:16px; opacity:.4; }
+.empty-title { font-family:'Syne',sans-serif; font-size:18px; font-weight:700; color:var(--text); margin-bottom:6px; }
+.loading { display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; padding:80px 20px; color:var(--muted); }
+.spinner { width:36px; height:36px; border:3px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:spin .8s linear infinite; margin-bottom:16px; }
+@keyframes spin{to{transform:rotate(360deg)}}
+
+::-webkit-scrollbar{width:5px} ::-webkit-scrollbar-track{background:transparent} ::-webkit-scrollbar-thumb{background:var(--border);border-radius:10px}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">Lab<span>Color</span></div>
+  <div class="header-right">
+    <div class="sync-badge">
+      <div class="sync-dot" id="syncDot"></div>
+      <span id="syncText">conectando...</span>
+    </div>
+    <span style="color:var(--border)">|</span>
+    <span style="color:var(--muted);font-size:12px">Modo:</span>
+    <button class="role-badge active" id="btnColorista" onclick="setRole('colorista')">🧪 Colorista</button>
+    <button class="role-badge" id="btnImpressor" onclick="setRole('impressor')">🖨️ Impressor</button>
+    <button class="btn-config" onclick="openSettings()">⚙️ Configurações</button>
+  </div>
+</header>
+
+<div class="app">
+  <aside class="sidebar">
+    <div id="sidebarTop"></div>
+    <div class="search-wrap" style="padding-top:10px">
+      <div class="search-input-wrap">
+        <span class="search-icon">🔍</span>
+        <input class="search-input" type="text" id="sidebarSearch" placeholder="Buscar pantone ou nome...">
+      </div>
+      <div class="filter-chips" id="filterChips"></div>
+    </div>
+    <div class="sidebar-section">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <div class="sidebar-label" style="margin-bottom:0">Receitas</div>
+        <div class="recipe-count" id="recipeCount"></div>
+      </div>
+      <div id="recipeList"></div>
+    </div>
+  </aside>
+  <main class="main" id="mainContent">
+    <div class="loading"><div class="spinner"></div><span>Conectando ao banco de dados...</span></div>
+  </main>
+</div>
+
+<!-- MODAL: NOVA / EDITAR RECEITA -->
+<div class="modal-overlay" id="modalReceita">
+  <div class="modal">
+    <div class="modal-header"><div class="modal-title" id="modalReceitaTitle">Nova Receita Pantone</div></div>
+    <div class="modal-body">
+      <div class="form-grid" style="margin-top:16px">
+        <div class="form-group"><label>Código Pantone</label><input type="text" id="f_pantone" placeholder="ex: PANTONE 485 C"></div>
+        <div class="form-group"><label>Nome / Descrição</label><input type="text" id="f_nome" placeholder="ex: Vermelho Cliente XYZ"></div>
+        <div class="form-group"><label>Máquina</label><select id="f_maquina"></select></div>
+        <div class="form-group"><label>Anilox</label><select id="f_anilox"></select></div>
+        <div class="form-group"><label>Tipo de Tinta</label><select id="f_tipo_tinta"><option value="">Selecione...</option><option value="Água">💧 Água</option><option value="UV">☀️ UV</option></select></div>
+        <div class="form-group"><label>Substrato / Item</label><input type="text" id="f_substrato" placeholder="ex: BOPP 30µ Transparente"></div>
+        <div class="form-group"><label>Cor de referência</label><input type="color" id="f_cor" value="#e8302a"></div>
+        <div class="form-group full">
+          <label>Componentes da Tinta</label>
+          <div class="tintas-section"><div id="tintaRows"></div><button class="btn-add-tinta" onclick="addTintaRow()">+ Adicionar componente</button></div>
+        </div>
+        <div class="form-group full"><label>Observações técnicas</label><textarea id="f_obs" placeholder="Viscosidade, temperatura, alertas..."></textarea></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="closeModal('modalReceita')">Cancelar</button>
+      <button class="btn-primary" onclick="saveRecipe()">Salvar Receita</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: ALTERAR ANILOX -->
+<div class="modal-overlay" id="modalAnilox">
+  <div class="modal" style="max-width:460px">
+    <div class="modal-header"><div class="modal-title">🔧 Alterar Anilox</div></div>
+    <div class="modal-body" style="padding-top:14px">
+      <p style="color:var(--muted);font-size:13px;margin-bottom:14px">Você pode alterar o anilox sem retornar ao laboratório.</p>
+      <div class="form-group" style="margin-bottom:12px"><label>Novo Anilox</label><select id="a_anilox"></select></div>
+      <div class="form-group"><label>Motivo</label><textarea id="a_motivo" placeholder="Descreva o motivo..." style="min-height:60px"></textarea></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="closeModal('modalAnilox')">Cancelar</button>
+      <button class="btn-anilox" onclick="saveAnilox()">Confirmar Alteração</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: REPROVAR -->
+<div class="modal-overlay" id="modalNok">
+  <div class="modal" style="max-width:460px">
+    <div class="modal-header"><div class="modal-title">⚠️ Reprovar — Ajuste de Tinta</div></div>
+    <div class="modal-body" style="padding-top:14px">
+      <p style="color:var(--muted);font-size:13px;margin-bottom:14px">A tinta retornará ao laboratório. Descreva o desvio observado.</p>
+      <div class="form-group"><label>Desvio / Problema</label><textarea id="nok_obs" placeholder="ex: Tom muito amarelado..." style="min-height:90px"></textarea></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="closeModal('modalNok')">Cancelar</button>
+      <button class="btn-nok" onclick="saveNok()">Enviar ao Laboratório</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: GERENCIAR RECEITAS -->
+<div class="modal-overlay" id="modalManage">
+  <div class="modal" style="max-width:680px">
+    <div class="modal-header"><div class="modal-title">Gerenciar Receitas</div></div>
+    <div class="modal-body" id="manageBody" style="padding-top:12px"></div>
+    <div class="modal-footer"><button class="btn-secondary" onclick="closeModal('modalManage')">Fechar</button></div>
+  </div>
+</div>
+
+<!-- MODAL: CONFIGURAÇÕES -->
+<div class="modal-overlay" id="modalSettings">
+  <div class="modal" style="max-width:640px">
+    <div class="modal-header">
+      <div class="modal-title">⚙️ Configurações</div>
+      <div style="display:flex;gap:8px;margin-top:14px">
+        <button class="stab active" id="stab_maq" onclick="settingsTab('maq')">🖨️ Máquinas</button>
+        <button class="stab" id="stab_anilox" onclick="settingsTab('anilox')">🔧 Anilox</button>
+      </div>
+    </div>
+    <div class="modal-body" id="settingsBody" style="padding-top:14px"></div>
+    <div class="modal-footer"><button class="btn-secondary" onclick="closeModal('modalSettings')">Fechar</button></div>
+  </div>
+</div>
+
+<script>
+// ── SUPABASE ──────────────────────────────────────────────
+var SUPA_URL = 'https://qflmibxupircmcpbuydh.supabase.co';
+var SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFmbG1pYnh1cGlyY21jcGJ1eWRoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4ODc5MTEsImV4cCI6MjA5MDQ2MzkxMX0.-qd2LI_k3TaPKbJpfvy0cGIYLJR7STggtPJFTm_c8fY';
+var db = supabase.createClient(SUPA_URL, SUPA_KEY);
+
+// ── ESTADO ────────────────────────────────────────────────
+var role='colorista', activeId=null, editingId=null, aniloxTgtId=null, nokTgtId=null;
+var tintaRowsData=[], sidebarFilter=null;
+var recipes=[], maquinas=[], aniloxList=[];
+
+// ── SYNC UI ───────────────────────────────────────────────
+function setSyncStatus(s, txt) {
+  var d=document.getElementById('syncDot'), t=document.getElementById('syncText');
+  if(d) d.className='sync-dot'+(s==='syncing'?' syncing':s==='error'?' error':'');
+  if(t) t.textContent=txt;
+}
+
+// ── UTILITÁRIOS ───────────────────────────────────────────
+function pad(n){return String(n).padStart(2,'0');}
+function nowStr(){var d=new Date();return pad(d.getDate())+'/'+pad(d.getMonth()+1)+' '+pad(d.getHours())+':'+pad(d.getMinutes());}
+function findRecipe(id){for(var i=0;i<recipes.length;i++)if(recipes[i].id===id)return recipes[i];return null;}
+function openModal(id){document.getElementById(id).classList.add('open');}
+function closeModal(id){document.getElementById(id).classList.remove('open');}
+function buildOpts(arr,sel,empty){var h=empty?'<option value="">'+empty+'</option>':'';for(var i=0;i<arr.length;i++)h+='<option value="'+arr[i].replace(/"/g,'&quot;')+'"'+(arr[i]===sel?' selected':'')+'>'+arr[i]+'</option>';return h;}
+function hl(text,q){if(!q)return text;var i=text.toLowerCase().indexOf(q.toLowerCase());if(i<0)return text;return text.slice(0,i)+'<mark>'+text.slice(i,i+q.length)+'</mark>'+text.slice(i+q.length);}
+document.addEventListener('click',function(e){['modalReceita','modalAnilox','modalNok','modalManage','modalSettings'].forEach(function(id){var el=document.getElementById(id);if(el&&e.target===el)el.classList.remove('open');});});
+
+// ── DB: CARREGAR ──────────────────────────────────────────
+async function loadAll() {
+  setSyncStatus('syncing','carregando...');
+  try {
+    var rR=await db.from('recipes').select('*').order('created_at',{ascending:false});
+    var rS=await db.from('settings').select('*');
+    if(rR.error)throw rR.error;
+    if(rS.error)throw rS.error;
+    recipes=(rR.data||[]).map(function(r){return{id:r.id,pantone:r.pantone,nome:r.nome||'',maquina:r.maquina||'',anilox:r.anilox||'',tipo_tinta:r.tipo_tinta||'',substrato:r.substrato||'',cor:r.cor||'#e8302a',tintas:r.tintas||[],obs:r.obs||'',status:r.status||'lab',history:r.history||[]};});
+    var sm={};(rS.data||[]).forEach(function(s){sm[s.key]=s.value;});
+    maquinas=sm['maquinas']||['Máquina 01 — 6 cores','Máquina 02 — 8 cores','Máquina 03 — 4 cores'];
+    aniloxList=sm['aniloxList']||['360 LPI — 7,5 BCM','400 LPI — 5,5 BCM','500 LPI — 4,0 BCM','550 LPI — 3,2 BCM','700 LPI — 2,0 BCM'];
+    setSyncStatus('ok','conectado');
+    renderSidebar();
+    if(recipes.length>0)showDetail(recipes[0].id);else renderEmpty();
+  } catch(err) {
+    setSyncStatus('error','erro de conexão');
+    document.getElementById('mainContent').innerHTML='<div class="empty"><div class="empty-icon">⚠️</div><div class="empty-title">Erro de conexão</div><p style="font-size:13px;max-width:300px;line-height:1.7;margin-top:8px">Verifique sua internet e recarregue a página.<br><br><small style="color:var(--muted)">'+err.message+'</small></p></div>';
+  }
+}
+
+// ── DB: SALVAR RECEITA ────────────────────────────────────
+async function dbSave(data,id) {
+  setSyncStatus('syncing','salvando...');
+  try {
+    var row={pantone:data.pantone,nome:data.nome,maquina:data.maquina,anilox:data.anilox,tipo_tinta:data.tipo_tinta||'',substrato:data.substrato,cor:data.cor,tintas:data.tintas,obs:data.obs,status:data.status,history:data.history};
+    var res=id?await db.from('recipes').update(row).eq('id',id).select().single():await db.from('recipes').insert(row).select().single();
+    if(res.error)throw res.error;
+    setSyncStatus('ok','salvo ✓');
+    setTimeout(function(){setSyncStatus('ok','conectado');},2000);
+    return res.data;
+  } catch(err){setSyncStatus('error','erro ao salvar');alert('Erro ao salvar: '+err.message);return null;}
+}
+
+// ── DB: EXCLUIR RECEITA ───────────────────────────────────
+async function dbDelete(id) {
+  setSyncStatus('syncing','excluindo...');
+  try {
+    var res=await db.from('recipes').delete().eq('id',id);
+    if(res.error)throw res.error;
+    setSyncStatus('ok','conectado');return true;
+  } catch(err){setSyncStatus('error','erro ao excluir');alert('Erro: '+err.message);return false;}
+}
+
+// ── DB: SALVAR CONFIGURAÇÕES ──────────────────────────────
+async function dbSaveSettings() {
+  setSyncStatus('syncing','salvando...');
+  try {
+    await db.from('settings').upsert([{key:'maquinas',value:maquinas},{key:'aniloxList',value:aniloxList}]);
+    setSyncStatus('ok','salvo ✓');
+    setTimeout(function(){setSyncStatus('ok','conectado');},2000);
+  } catch(err){setSyncStatus('error','erro');}
+}
+
+// ── ROLE ──────────────────────────────────────────────────
+function setRole(r){
+  role=r;sidebarFilter=null;
+  document.getElementById('btnColorista').classList.toggle('active',r==='colorista');
+  document.getElementById('btnImpressor').classList.toggle('active',r==='impressor');
+  renderSidebar();if(activeId)showDetail(activeId);else renderEmpty();
+}
+
+// ── SIDEBAR ───────────────────────────────────────────────
+function renderSidebar(){
+  var top=document.getElementById('sidebarTop');
+  top.innerHTML=role==='colorista'?'<button class="btn-new" onclick="openNewRecipe()">+ Nova Receita</button><button class="btn-sidebar-sec" onclick="openManage()">⚙️ Gerenciar Receitas</button>':'<div style="padding:14px 16px 0;color:var(--muted);font-size:12px">Selecione uma receita para validar</div>';
+  renderFilterChips();renderRecipeList();
+  var inp=document.getElementById('sidebarSearch');if(inp)inp.oninput=renderRecipeList;
+}
+
+function renderFilterChips(){
+  var el=document.getElementById('filterChips');if(!el)return;
+  var filters=[{key:null,label:'Todas'},{key:'lab',label:'Lab',color:'var(--warn)'},{key:'press',label:'Impressão',color:'var(--accent2)'},{key:'ok',label:'Aprovadas',color:'var(--success)'},{key:'ajuste',label:'Ajuste',color:'var(--danger)'}];
+  var h='';
+  for(var i=0;i<filters.length;i++){
+    var f=filters[i],cnt=f.key===null?recipes.length:recipes.filter(function(r){return r.status===f.key;}).length;
+    if(f.key!==null&&cnt===0)continue;
+    var act=sidebarFilter===f.key;
+    h+='<button class="filter-chip'+(act?' active':'')+'" onclick="setSidebarFilter('+(f.key===null?'null':"'"+f.key+"'")+')">'; 
+    if(f.color)h+='<span class="filter-chip-dot" style="background:'+f.color+'"></span>';
+    h+=f.label+' '+cnt+'</button>';
+  }
+  el.innerHTML=h;
+}
+
+function setSidebarFilter(f){sidebarFilter=f;renderFilterChips();renderRecipeList();}
+
+function renderRecipeList(){
+  var inp=document.getElementById('sidebarSearch'),query=inp?inp.value.trim().toLowerCase():'';
+  var dots={lab:'dot-lab',press:'dot-press',ok:'dot-ok',ajuste:'dot-ajuste'};
+  var filtered=recipes.filter(function(r){
+    var okF=sidebarFilter===null||r.status===sidebarFilter;
+    var okS=!query||r.pantone.toLowerCase().indexOf(query)>=0||(r.nome||'').toLowerCase().indexOf(query)>=0||(r.substrato||'').toLowerCase().indexOf(query)>=0||r.maquina.toLowerCase().indexOf(query)>=0;
+    return okF&&okS;
+  });
+  var ce=document.getElementById('recipeCount');if(ce)ce.textContent=filtered.length+'/'+recipes.length;
+  var h='';
+  if(!filtered.length){h='<div style="color:var(--muted);font-size:12px;padding:10px 4px;text-align:center;line-height:1.7">'+(query||sidebarFilter?'Nenhuma receita encontrada.':'Nenhuma receita cadastrada.')+'</div>';}
+  else{for(var i=0;i<filtered.length;i++){var r=filtered[i];h+='<div class="recipe-item'+(activeId===r.id?' active':'')+'" onclick="showDetail('+r.id+')">'+'<div class="pantone-swatch" style="background:'+r.cor+'"></div>'+'<div class="recipe-info"><div class="recipe-name">'+hl(r.pantone,query)+'</div><div class="recipe-meta">'+hl(r.nome||'—',query)+'</div></div>'+'<div class="status-dot '+(dots[r.status]||'')+'"></div></div>';}}
+  document.getElementById('recipeList').innerHTML=h;
+}
+
+// ── EMPTY ─────────────────────────────────────────────────
+function renderEmpty(){document.getElementById('mainContent').innerHTML='<div class="empty"><div class="empty-icon">🎨</div><div class="empty-title">Bem-vindo ao LabColor</div><p style="font-size:13px;max-width:320px;line-height:1.7">'+(role==='colorista'?'Crie sua primeira receita clicando em <strong style="color:var(--accent)">+ Nova Receita</strong>.':'Selecione uma receita na barra lateral para validar.')+'</p></div>';}
+
+// ── DETAIL ────────────────────────────────────────────────
+function showDetail(id){
+  activeId=id;var r=findRecipe(id);if(!r)return;
+  renderRecipeList();
+  var stMap={lab:{label:'Em laboratório',cls:'badge-lab',dot:'dot-lab'},press:{label:'Com o impressor',cls:'badge-press',dot:'dot-press'},ok:{label:'Aprovado',cls:'badge-ok',dot:'dot-ok'},ajuste:{label:'Retornou ao laboratório',cls:'badge-ajuste',dot:'dot-ajuste'}};
+  var st=stMap[r.status];
+  var tH='',total=0;
+  for(var i=0;i<r.tintas.length;i++){var t=r.tintas[i],q=parseFloat(t.qtd)||0;total+=q;tH+='<tr><td>'+t.nome+'</td><td><span class="tag">'+t.tipo+'</span></td><td style="font-family:\'DM Mono\',monospace;text-align:right">'+q.toFixed(0)+' g</td></tr>';}
+  if(total>0)tH+='<tr style="font-weight:700;color:var(--accent)"><td>Total</td><td></td><td style="font-family:\'DM Mono\',monospace;text-align:right">'+total.toFixed(0)+' g</td></tr>';
+  var hH='';for(var i=0;i<r.history.length;i++){var h=r.history[i];hH+='<div class="history-item"><div class="history-icon">'+h.icon+'</div><div class="history-text"><div class="history-who">'+h.who+'</div><div class="history-what">'+h.what+'</div></div><div class="history-when">'+h.when+'</div></div>';}
+  var aH='';
+  if(role==='impressor'&&r.status==='press')aH='<div class="card"><div class="card-title">Ações do Impressor</div><p style="color:var(--muted);font-size:13px;line-height:1.7;margin-bottom:12px">Valide a cor em máquina. Você pode ajustar o anilox. Para ajuste de tinta, reprove e envie ao laboratório.</p><div class="anilox-note">🔧 <strong>Anilox atual:</strong> '+r.anilox+' — pode ser alterado sem retornar ao lab.</div><div class="press-actions"><button class="btn-ok" onclick="approveRecipe('+r.id+')">✅ Aprovar</button><button class="btn-anilox" onclick="openAlterAnilox('+r.id+')">🔧 Alterar Anilox</button><button class="btn-nok" onclick="openNok('+r.id+')">❌ Reprovar</button></div></div>';
+  if(role==='colorista'&&r.status==='lab')aH='<div class="card"><div class="card-title">Enviar para Impressão</div><p style="color:var(--muted);font-size:13px;margin-bottom:12px">Receita pronta? Envie ao impressor para validação em máquina.</p><button class="btn-primary" onclick="sendToPress('+r.id+')">🖨️ Enviar ao Impressor</button></div>';
+  if(role==='colorista'&&r.status==='ajuste')aH='<div class="card" style="border-color:rgba(248,113,113,.3)"><div class="card-title" style="color:var(--danger)">⚠️ Ajuste Solicitado pelo Impressor</div><p style="color:var(--muted);font-size:13px;margin-bottom:12px">Corrija a receita e reenvie ao impressor.</p><div style="display:flex;gap:10px"><button class="btn-primary" onclick="openEditRecipe('+r.id+')">✏️ Editar Receita</button><button class="btn-anilox" onclick="sendToPress('+r.id+')">🖨️ Reenviar ao Impressor</button></div></div>';
+  var obsH=r.obs?'<div style="margin-top:12px;padding:11px 13px;background:var(--surface2);border-radius:var(--radius);color:var(--muted);font-size:12px;line-height:1.7"><strong style="color:var(--text)">Obs:</strong> '+r.obs+'</div>':'';
+  document.getElementById('mainContent').innerHTML=
+    '<div class="detail-header"><div class="detail-swatch" style="background:'+r.cor+'"></div><div class="detail-title-area"><div class="detail-code">'+r.pantone+'</div><div class="detail-desc">'+(r.nome||'')+'</div><div class="detail-actions-row"><div class="status-badge '+st.cls+'"><div class="status-dot '+st.dot+'"></div>'+st.label+'</div><button class="btn-pdf" onclick="exportPDF('+r.id+')">⬇ Exportar PDF</button></div></div></div>'+
+    '<div class="card"><div class="card-title">Fluxo de Status</div>'+buildFlow(r.status)+'</div>'+
+    '<div class="card"><div class="card-title">Configuração de Impressão</div><div class="info-grid"><div class="info-box"><div class="info-box-label">Máquina</div><div class="info-box-value">'+r.maquina+'</div></div><div class="info-box"><div class="info-box-label">Anilox</div><div class="info-box-value">'+r.anilox+'</div></div><div class="info-box"><div class="info-box-label">Substrato</div><div class="info-box-value">'+(r.substrato||'—')+'</div></div></div>'+(r.tipo_tinta?'<div style="margin-top:12px"><span style="display:inline-flex;align-items:center;gap:8px;padding:5px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:20px;font-size:12px">'+(r.tipo_tinta==="UV"?"☀️":"💧")+" <span style=\"font-family:\'DM Mono\',monospace;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.8px\">Tipo de Tinta</span> <strong>"+r.tipo_tinta+"</strong></span></div>":'')+'</div>'+
+    '<div class="card"><div class="card-title">Receita — Composição</div><table class="tinta-table"><thead><tr><th>Componente</th><th>Tipo</th><th style="text-align:right">Qtd (g)</th></tr></thead><tbody>'+tH+'</tbody></table>'+obsH+'</div>'+
+    aH+
+    '<div class="card"><div class="card-title">Histórico</div>'+hH+'</div>';
+}
+
+function buildFlow(status){
+  var states=['lab','press','ok'],labels=['Laboratório','Impressão','Aprovado'],icons=['🧪','🖨️','✅'];
+  var h='<div class="flow-steps">';
+  for(var i=0;i<states.length;i++){
+    var idx=states.indexOf(status),cls='';
+    if(status==='ajuste'){cls=i===2?'warn':(i<=1?'done':'');}else{if(i<idx)cls='done';else if(i===idx)cls='active';}
+    h+='<div class="flow-step"><div class="flow-circle '+cls+'">'+(cls==='done'?'✓':icons[i])+'</div><div class="flow-label">'+labels[i]+'</div></div>';
+    if(i<states.length-1){var ad=(status!=='ajuste'&&states.indexOf(status)>i)||(status==='ajuste'&&i<1);h+='<div class="flow-arrow'+(ad?' done-arrow':'')+'"></div>';}
+  }
+  h+='</div>';
+  if(status==='ajuste')h+='<div style="display:flex;align-items:center;gap:8px;margin-top:6px;padding:9px 13px;background:rgba(248,113,113,.08);border-radius:var(--radius);border:1px solid rgba(248,113,113,.2)"><span>↩️</span><span style="font-size:12px;color:var(--danger)">Reprovado — tinta retornou ao laboratório para ajuste</span></div>';
+  return h;
+}
+
+// ── AÇÕES ─────────────────────────────────────────────────
+async function approveRecipe(id){
+  var r=findRecipe(id);if(!r)return;
+  r.status='ok';r.history.push({who:'Impressor',icon:'🖨️',what:'Aprovado — cor validada em máquina',when:nowStr()});
+  var s=await dbSave(r,id);if(s){Object.assign(r,{status:s.status,history:s.history});renderSidebar();showDetail(id);}
+}
+async function sendToPress(id){
+  var r=findRecipe(id);if(!r)return;
+  r.status='press';r.history.push({who:'Colorista',icon:'🧪',what:'Receita enviada ao impressor',when:nowStr()});
+  var s=await dbSave(r,id);if(s){Object.assign(r,{status:s.status,history:s.history});renderSidebar();showDetail(id);}
+}
+
+// ── MODAL RECEITA ─────────────────────────────────────────
+function openNewRecipe(){
+  editingId=null;
+  document.getElementById('modalReceitaTitle').textContent='Nova Receita Pantone';
+  document.getElementById('f_pantone').value='';document.getElementById('f_nome').value='';
+  document.getElementById('f_tipo_tinta').value='';document.getElementById('f_substrato').value='';document.getElementById('f_cor').value='#e8302a';document.getElementById('f_obs').value='';
+  document.getElementById('f_maquina').innerHTML=buildOpts(maquinas,'','Selecione...');
+  document.getElementById('f_anilox').innerHTML=buildOpts(aniloxList,'','Selecione...');
+  tintaRowsData=[{nome:'',tipo:'Pigmento',qtd:''}];renderTintaRows();openModal('modalReceita');
+}
+function openEditRecipe(id){
+  var r=findRecipe(id);if(!r)return;editingId=id;
+  document.getElementById('modalReceitaTitle').textContent='Editar Receita';
+  document.getElementById('f_pantone').value=r.pantone;document.getElementById('f_nome').value=r.nome||'';
+  document.getElementById('f_tipo_tinta').value=r.tipo_tinta||'';document.getElementById('f_substrato').value=r.substrato||'';document.getElementById('f_cor').value=r.cor;document.getElementById('f_obs').value=r.obs||'';
+  document.getElementById('f_maquina').innerHTML=buildOpts(maquinas,r.maquina,'Selecione...');
+  document.getElementById('f_anilox').innerHTML=buildOpts(aniloxList,r.anilox,'Selecione...');
+  tintaRowsData=r.tintas.map(function(t){return{nome:t.nome,tipo:t.tipo,qtd:t.qtd};});renderTintaRows();openModal('modalReceita');
+}
+function renderTintaRows(){
+  var tipos=['Pigmento','Veículo','Aditivo','Verniz','Solvente'],h='';
+  for(var i=0;i<tintaRowsData.length;i++){
+    var t=tintaRowsData[i],opts='';
+    for(var j=0;j<tipos.length;j++)opts+='<option value="'+tipos[j]+'"'+(t.tipo===tipos[j]?' selected':'')+'>'+tipos[j]+'</option>';
+    h+='<div class="tinta-row"><input type="text" value="'+(t.nome||'')+'" placeholder="Nome do componente" oninput="tintaRowsData['+i+'].nome=this.value"><select onchange="tintaRowsData['+i+'].tipo=this.value">'+opts+'</select><input type="number" value="'+(t.qtd||'')+'" placeholder="Qtd (g)" oninput="tintaRowsData['+i+'].qtd=this.value" style="text-align:right"><button class="btn-icon" onclick="removeTintaRow('+i+')">×</button></div>';
+  }
+  document.getElementById('tintaRows').innerHTML=h;
+}
+function addTintaRow(){tintaRowsData.push({nome:'',tipo:'Pigmento',qtd:''});renderTintaRows();}
+function removeTintaRow(i){tintaRowsData.splice(i,1);renderTintaRows();}
+
+async function saveRecipe(){
+  var pantone=document.getElementById('f_pantone').value.trim();
+  var maquina=document.getElementById('f_maquina').value;
+  var anilox=document.getElementById('f_anilox').value;
+  if(!pantone||!maquina||!anilox){alert('Preencha Pantone, Máquina e Anilox.');return;}
+  var tintas=tintaRowsData.filter(function(t){return t.nome.trim();});
+  if(editingId){
+    var r=findRecipe(editingId);
+    r.pantone=pantone;r.nome=document.getElementById('f_nome').value.trim();r.maquina=maquina;r.anilox=anilox;
+    r.tipo_tinta=document.getElementById('f_tipo_tinta').value;r.substrato=document.getElementById('f_substrato').value.trim();r.cor=document.getElementById('f_cor').value;
+    r.tintas=tintas;r.obs=document.getElementById('f_obs').value.trim();
+    r.history.push({who:'Colorista',icon:'✏️',what:'Receita editada',when:nowStr()});
+    var s=await dbSave(r,editingId);if(s){Object.assign(r,s);closeModal('modalReceita');renderSidebar();showDetail(editingId);}
+  } else {
+    var nr={pantone:pantone,nome:document.getElementById('f_nome').value.trim(),maquina:maquina,anilox:anilox,tipo_tinta:document.getElementById('f_tipo_tinta').value,substrato:document.getElementById('f_substrato').value.trim(),cor:document.getElementById('f_cor').value,tintas:tintas,obs:document.getElementById('f_obs').value.trim(),status:'lab',history:[{who:'Colorista',icon:'🧪',what:'Receita criada',when:nowStr()}]};
+    var s=await dbSave(nr,null);
+    if(s){nr.id=s.id;recipes.unshift(nr);closeModal('modalReceita');renderSidebar();showDetail(s.id);}
+  }
+}
+
+// ── ANILOX ────────────────────────────────────────────────
+function openAlterAnilox(id){aniloxTgtId=id;var r=findRecipe(id);document.getElementById('a_anilox').innerHTML=buildOpts(aniloxList,r.anilox,'');document.getElementById('a_motivo').value='';openModal('modalAnilox');}
+async function saveAnilox(){
+  var r=findRecipe(aniloxTgtId),ant=r.anilox,novo=document.getElementById('a_anilox').value,motivo=document.getElementById('a_motivo').value.trim();
+  r.anilox=novo;r.history.push({who:'Impressor',icon:'🔧',what:'Anilox: '+ant+' → '+novo+(motivo?' — '+motivo:''),when:nowStr()});
+  var s=await dbSave(r,aniloxTgtId);if(s){Object.assign(r,s);closeModal('modalAnilox');showDetail(aniloxTgtId);}
+}
+
+// ── NOK ───────────────────────────────────────────────────
+function openNok(id){nokTgtId=id;document.getElementById('nok_obs').value='';openModal('modalNok');}
+async function saveNok(){
+  var r=findRecipe(nokTgtId),obs=document.getElementById('nok_obs').value.trim();
+  r.status='ajuste';r.history.push({who:'Impressor',icon:'❌',what:'Reprovado: '+(obs||'desvio de cor')+'. Tinta retornada ao laboratório.',when:nowStr()});
+  var s=await dbSave(r,nokTgtId);if(s){Object.assign(r,s);closeModal('modalNok');renderSidebar();showDetail(nokTgtId);}
+}
+
+// ── GERENCIAR ─────────────────────────────────────────────
+function openManage(){renderManage('todos');openModal('modalManage');}
+function renderManage(filtro){
+  var stL={lab:'Em laboratório',press:'Com impressor',ok:'Aprovado',ajuste:'Retornou ao lab'};
+  var stC={lab:'badge-lab',press:'badge-press',ok:'badge-ok',ajuste:'badge-ajuste'};
+  var dtC={lab:'dot-lab',press:'dot-press',ok:'dot-ok',ajuste:'dot-ajuste'};
+  var fs=['todos','ok','press','lab','ajuste'],fL={todos:'Todas',ok:'Aprovadas',press:'Em impressão',lab:'Em laboratório',ajuste:'Retornadas'};
+  var tabs='';
+  for(var i=0;i<fs.length;i++){var f=fs[i],cnt=f==='todos'?recipes.length:recipes.filter(function(r){return r.status===f;}).length,act=f===filtro;tabs+='<button onclick="renderManage(\''+f+'\')" style="background:'+(act?'var(--accent)':'var(--surface2)')+';color:'+(act?'#000':'var(--muted)')+';border:1px solid '+(act?'var(--accent)':'var(--border)')+';border-radius:20px;padding:4px 12px;font-size:11px;font-family:\'Syne\',sans-serif;font-weight:'+(act?700:600)+';cursor:pointer;margin-bottom:4px">'+fL[f]+' ('+cnt+')</button>';}
+  var lista=filtro==='todos'?recipes:recipes.filter(function(r){return r.status===filtro;});
+  var listH='';
+  if(!lista.length){listH='<div style="text-align:center;padding:32px;color:var(--muted);font-size:13px">Nenhuma receita neste filtro.</div>';}
+  else{for(var i=0;i<lista.length;i++){var r=lista[i];listH+='<div style="display:flex;align-items:center;gap:12px;padding:11px 13px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:8px"><div style="width:34px;height:34px;border-radius:7px;background:'+r.cor+';border:1px solid rgba(255,255,255,.1);flex-shrink:0"></div><div style="flex:1;min-width:0"><div style="font-family:\'DM Mono\',monospace;font-size:12px;font-weight:500">'+r.pantone+'</div><div style="font-size:11px;color:var(--muted);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+(r.nome||'—')+' · '+r.maquina+'</div></div><div class="status-badge '+stC[r.status]+'" style="font-size:11px;padding:3px 10px;white-space:nowrap"><div class="status-dot '+dtC[r.status]+'"></div>'+stL[r.status]+'</div><button onclick="deleteRecipe('+r.id+')" style="background:none;border:1px solid var(--border);border-radius:7px;color:var(--muted);width:30px;height:30px;cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:center;flex-shrink:0" onmouseover="this.style.borderColor=\'var(--danger)\';this.style.color=\'var(--danger)\'" onmouseout="this.style.borderColor=\'var(--border)\';this.style.color=\'var(--muted)\'">🗑</button></div>';}}
+  document.getElementById('manageBody').innerHTML='<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px">'+tabs+'</div><div>'+listH+'</div><div style="margin-top:14px;padding:10px 13px;background:rgba(248,113,113,.07);border:1px solid rgba(248,113,113,.2);border-radius:var(--radius);font-size:12px;color:var(--danger)">⚠️ A exclusão é permanente e não pode ser desfeita.</div>';
+}
+async function deleteRecipe(id){
+  var r=findRecipe(id);
+  if(!confirm('Excluir "'+r.pantone+(r.nome?' — '+r.nome:'')+'"\n\nEssa ação não pode ser desfeita.'))return;
+  var ok=await dbDelete(id);
+  if(ok){recipes=recipes.filter(function(x){return x.id!==id;});renderSidebar();renderManage('todos');if(activeId===id){activeId=null;renderEmpty();}}
+}
+
+// ── CONFIGURAÇÕES ─────────────────────────────────────────
+function openSettings(){document.getElementById('stab_maq').className='stab active';document.getElementById('stab_anilox').className='stab';renderSettingsTab('maq');openModal('modalSettings');}
+function settingsTab(tab){document.getElementById('stab_maq').className='stab'+(tab==='maq'?' active':'');document.getElementById('stab_anilox').className='stab'+(tab==='anilox'?' active':'');renderSettingsTab(tab);}
+function renderSettingsTab(tab){
+  var isMaq=tab==='maq',list=isMaq?maquinas:aniloxList,ph=isMaq?'ex: Máquina 04 — 10 cores':'ex: 600 LPI — 2,8 BCM',noun=isMaq?'máquina':'anilox';
+  var ih='';
+  if(!list.length){ih='<div style="text-align:center;padding:28px;color:var(--muted);font-size:13px">Nenhum '+noun+' cadastrado.</div>';}
+  else{for(var i=0;i<list.length;i++)ih+='<div style="display:flex;align-items:center;gap:10px;padding:10px 13px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:8px"><div style="flex:1;font-size:13px;font-family:\'DM Mono\',monospace">'+list[i]+'</div><button onclick="deleteSetting(\''+tab+'\','+i+')" style="background:none;border:1px solid var(--border);border-radius:7px;color:var(--muted);width:30px;height:30px;cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:center" onmouseover="this.style.borderColor=\'var(--danger)\';this.style.color=\'var(--danger)\'" onmouseout="this.style.borderColor=\'var(--border)\';this.style.color=\'var(--muted)\'">×</button></div>';}
+  document.getElementById('settingsBody').innerHTML='<div style="margin-bottom:14px"><div style="font-size:12px;color:var(--muted);margin-bottom:10px">'+list.length+' '+noun+'(es) cadastrado(s)</div><div style="display:flex;gap:8px"><input type="text" id="setting_input" placeholder="'+ph+'" style="flex:1" onkeydown="if(event.key===\'Enter\')addSetting(\''+tab+'\')"><button class="btn-primary" onclick="addSetting(\''+tab+'\')" style="padding:10px 16px;font-size:13px;white-space:nowrap">+ Adicionar</button></div></div><div>'+ih+'</div>';
+}
+async function addSetting(tab){
+  var val=document.getElementById('setting_input').value.trim();if(!val)return;
+  var list=tab==='maq'?maquinas:aniloxList;
+  if(list.indexOf(val)>=0){alert('Já existe um item com esse nome.');return;}
+  list.push(val);await dbSaveSettings();renderSettingsTab(tab);
+}
+async function deleteSetting(tab,idx){
+  var list=tab==='maq'?maquinas:aniloxList,item=list[idx];
+  var inUse=recipes.filter(function(r){return(tab==='maq'?r.maquina:r.anilox)===item;}).length;
+  if(!confirm(inUse>0?'"'+item+'" está em uso em '+inUse+' receita(s). Excluir mesmo assim?':'Excluir "'+item+'"?'))return;
+  list.splice(idx,1);await dbSaveSettings();renderSettingsTab(tab);
+}
+
+// ── PDF ───────────────────────────────────────────────────
+function exportPDF(id){
+  var r=findRecipe(id);if(!r)return;
+  var stL={lab:'Em laboratório',press:'Com o impressor',ok:'Aprovado',ajuste:'Retornou ao laboratório'};
+  var now=new Date(),dt=pad(now.getDate())+'/'+pad(now.getMonth()+1)+'/'+now.getFullYear()+' '+pad(now.getHours())+':'+pad(now.getMinutes()),docNum='RC-'+String(r.id).slice(-6);
+  var tRows='',total=0;
+  for(var i=0;i<r.tintas.length;i++){var t=r.tintas[i],q=parseFloat(t.qtd)||0;total+=q;tRows+='<tr style="background:'+(i%2===0?'#f8f8f8':'#fff')+'"><td style="padding:8px 11px;border-bottom:1px solid #eee;font-size:13px">'+t.nome+'</td><td style="padding:8px 11px;border-bottom:1px solid #eee;font-size:13px;color:#666">'+t.tipo+'</td><td style="padding:8px 11px;border-bottom:1px solid #eee;font-size:13px;font-family:monospace;text-align:right">'+q.toFixed(0)+' g</td></tr>';}
+  if(total>0)tRows+='<tr style="background:#f0f0f0;font-weight:700"><td style="padding:9px 11px;font-size:13px" colspan="2">TOTAL</td><td style="padding:9px 11px;font-size:13px;font-family:monospace;text-align:right">'+total.toFixed(0)+' g</td></tr>';
+  var hRows='';for(var i=0;i<r.history.length;i++){var h=r.history[i];hRows+='<tr><td style="padding:7px 11px;border-bottom:1px solid #eee;font-size:12px;color:#888;font-family:monospace;white-space:nowrap">'+h.when+'</td><td style="padding:7px 11px;border-bottom:1px solid #eee;font-size:12px;font-weight:600">'+h.who+'</td><td style="padding:7px 11px;border-bottom:1px solid #eee;font-size:12px;color:#444">'+h.what+'</td></tr>';}
+  var obsB=r.obs?'<div style="margin-top:12px;padding:11px 13px;background:#fffbeb;border-left:3px solid #f59e0b;border-radius:4px;font-size:12px;color:#555;line-height:1.7"><strong style="color:#333">Obs:</strong> '+r.obs+'</div>':'';
+  var css='*{box-sizing:border-box;margin:0;padding:0}body{font-family:"Helvetica Neue",Arial,sans-serif;color:#1a1a1a;background:#fff}.page{max-width:780px;margin:0 auto;padding:32px 36px}.hdr{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:26px;padding-bottom:18px;border-bottom:3px solid #e8ff47}.brand{font-size:22px;font-weight:900;letter-spacing:-.5px}.hero{display:flex;gap:16px;align-items:center;margin-bottom:22px;padding:16px 18px;background:#f8f8f8;border-radius:10px;border-left:5px solid '+r.cor+'}.swatch{width:56px;height:56px;border-radius:9px;background:'+r.cor+';border:2px solid rgba(0,0,0,.08);flex-shrink:0}.hero h1{font-size:21px;font-weight:800;margin-bottom:2px}.hero p{font-size:13px;color:#666}.pill{display:inline-block;padding:3px 12px;border-radius:20px;font-size:11px;font-weight:700;background:#e8ff47;color:#000;margin-top:6px}.sec{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;color:#999;margin-bottom:9px;margin-top:22px}.igrid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:11px}.ibox{background:#f8f8f8;border-radius:7px;padding:11px 13px}.ibox-l{font-size:10px;color:#999;text-transform:uppercase;letter-spacing:.8px;margin-bottom:3px}.ibox-v{font-size:14px;font-weight:600;color:#111}table{width:100%;border-collapse:collapse}thead th{background:#111;color:#fff;padding:8px 11px;font-size:10px;text-transform:uppercase;letter-spacing:1px;text-align:left}thead th:last-child{text-align:right}.footer{margin-top:28px;padding-top:12px;border-top:1px solid #eee;display:flex;justify-content:space-between;font-size:10px;color:#bbb}.print-btn{display:block;margin:20px auto 6px;background:#111;color:#e8ff47;border:none;padding:12px 32px;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer}@media print{.print-btn{display:none}@page{margin:18mm 15mm;size:A4}}';
+  var w=window.open('','_blank');
+  w.document.write('<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>Receita — '+r.pantone+'</title><style>'+css+'</style></head><body><div class="page"><div class="hdr"><div><div class="brand">Lab<span style="color:#888">Color</span></div><div style="font-size:12px;color:#aaa;margin-top:2px">Ficha de Receita de Tinta</div></div><div style="text-align:right;font-size:11px;color:#888;line-height:1.8">Gerado em: '+dt+'<br>Documento: '+docNum+'<br>Interpack Indústria e Comércio Ltda.</div></div><div class="hero"><div class="swatch"></div><div><h1>'+r.pantone+'</h1><p>'+(r.nome||'Sem descrição')+'</p><span class="pill">'+stL[r.status]+'</span></div></div><div class="sec">Configuração de Impressão</div><div class="igrid"><div class="ibox"><div class="ibox-l">Máquina</div><div class="ibox-v">'+r.maquina+'</div></div><div class="ibox"><div class="ibox-l">Anilox</div><div class="ibox-v">'+r.anilox+'</div></div><div class="ibox"><div class="ibox-l">Substrato</div><div class="ibox-v">'+(r.substrato||'—')+'</div></div></div><div class="sec">Composição da Tinta</div><table><thead><tr><th>Componente</th><th>Tipo</th><th style="text-align:right">Quantidade</th></tr></thead><tbody>'+tRows+'</tbody></table>'+obsB+(hRows?'<div class="sec">Histórico</div><table><thead><tr><th>Data/Hora</th><th>Responsável</th><th>Ação</th></tr></thead><tbody>'+hRows+'</tbody></table>':'')+'<div class="footer"><span>LabColor — Interpack Indústria e Comércio Ltda.</span><span>'+docNum+' · '+r.pantone+'</span></div><button class="print-btn" onclick="window.print()">🖨️ Imprimir / Salvar PDF</button></div></body></html>');
+  w.document.close();
+}
+
+// ── INIT ──────────────────────────────────────────────────
+loadAll();
+</script>
+</body>
+</html>
